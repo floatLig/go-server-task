@@ -1,0 +1,46 @@
+package rpc
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
+)
+
+func RpcRead(conn net.Conn) []byte {
+	result := bytes.NewBuffer(nil)
+	var buf [65542]byte // 由于 标识数据包长度 的只有两个字节 故数据包最大为 2^16+4(魔数)+2(长度标识)
+	//for {
+	n, err := conn.Read(buf[0:])
+	result.Write(buf[0:n])
+	if err != nil {
+		if err == io.EOF {
+		} else {
+			fmt.Println("read err:", err)
+		}
+	}
+	scanner := bufio.NewScanner(result)
+	scanner.Split(packetSlitFunc)
+	for scanner.Scan() {
+		return scanner.Bytes()[6:]
+	}
+	fmt.Println("读不到数据")
+	return nil
+}
+
+// 解决 粘包 粘包
+func packetSlitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	// 检查 atEOF 参数 和 数据包头部的四个字节是否 为 0x123456(我们定义的协议的魔数)
+	if !atEOF && len(data) > 6 && binary.BigEndian.Uint32(data[:4]) == 0x123456 {
+		var l int16
+		// 读出 数据包中 实际数据 的长度(大小为 0 ~ 2^16)
+		binary.Read(bytes.NewReader(data[4:6]), binary.BigEndian, &l)
+		pl := int(l) + 6
+		if pl <= len(data) {
+			return pl, data[:pl], nil
+		}
+	}
+	return
+}
